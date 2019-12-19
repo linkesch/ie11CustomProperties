@@ -126,6 +126,12 @@
 	const regHasVar = /var\(/;
 	const regPseudos = /:(hover|active|focus|target|:before|:after)/;
 
+	let drawQueue = {};
+	let collecting = false;
+	let drawing = false;
+
+	var uniqueCounter = 0;
+
 	c1.onElement('link[rel="stylesheet"]', {immediate:function (el) {
 		fetchCss(el.href, function (css) {
 			var newCss = rewriteCss(css);
@@ -182,8 +188,12 @@
 		});
 		*/
 
-		css = css.replace(regFindSetters, function($0, $1, $2, $3, important){ return $1+'-ie-'+(important?'❗':'')+$3; }); // !imporant
-		return css.replace(regFindGetters, function($0, $1, $2, important){ return $1+'-ieVar-'+(important?'❗':'')+$2+'; '+$2; }) // keep the original, so chaining works "--x:var(--y)"
+		css = css.replace(regFindSetters, function($0, $1, $2, $3, important){
+			return $1+'-ie-'+(important?'❗':'')+$3+'; '+$2; // keep the original, so it doesn't conflict with ShadyCSS
+		}); // !imporant
+		return css.replace(regFindGetters, function($0, $1, $2, important){
+			return $1+'-ieVar-'+(important?'❗':'')+$2+'; '+$2; // keep the original, so chaining works "--x:var(--y)"
+		})
 	}
 
 	// beta
@@ -223,7 +233,7 @@
 		style.setAttribute('ie-polyfilled', true);
 		var rules = style.sheet.rules, i=0, rule; // cssRules = CSSRuleList, rules = MSCSSRuleList
 		while (rule = rules[i++]) {
-			const found = parseRewrittenStyle(rule.style);
+			const found = rule.style ? parseRewrittenStyle(rule.style) : {};
 			if (found.getters) addGettersSelector(rule.selectorText, found.getters);
 			if (found.setters) addSettersSelector(rule.selectorText, found.setters);
 
@@ -292,26 +302,27 @@
 	// setTimeout(redrawStyleSheets,1000);
 	//setTimeout(redrawStyleSheets,2000);
 
-
-	const pseudos = {
-		hover:{
-			on:'mouseenter',
-			off:'mouseleave'
-		},
-		focus:{
-			on:'focusin',
-			off:'focusout'
-		},
-		active:{
-			on:'CSSActivate',
-			off:'CSSDeactivate'
-		},
-	};
 	function selectorAddPseudoListeners(selector){
 		// ie11 has the strange behavoir, that groups of selectors are individual rules, but starting with the full selector:
 		// td, th, button { color:red } results in this rules:
 		// "td, th, button" | "th, th" | "th"
 		selector = selector.split(',')[0];
+
+		const pseudos = {
+			hover:{
+				on:'mouseenter',
+				off:'mouseleave'
+			},
+			focus:{
+				on:'focusin',
+				off:'focusout'
+			},
+			active:{
+				on:'CSSActivate',
+				off:'CSSDeactivate'
+			},
+		};
+
 		for (var pseudo in pseudos) {
 			var parts = selector.split(':'+pseudo);
 			if (parts.length > 1) {
@@ -348,8 +359,6 @@
 	function unPseudo(selector){
 		return selector.replace(regPseudos,'').replace(':not()','');
 	}
-
-	var uniqueCounter = 0;
 
 	function _drawElement(el) {
 		// beta
@@ -403,9 +412,6 @@
 		for (var i = 0, el; el = els[i++];) drawElement(el); // tree
 	}
 	// draw queue
-	let drawQueue = {};
-	let collecting = false;
-	let drawing = false;
 	function drawElement(el){
 		drawQueue[el.uniqueNumber] = el;
 		if (collecting) return;
@@ -426,8 +432,8 @@
 		drawTree(e.target)
 	}
 
-	const regValueGetters = /var\(([^),]+)(\,(.+))?\)/g;
 	function styleComputeValueWidthVars(style, valueWithVar, details){
+		const regValueGetters = /var\(([^),]+)(\,(.+))?\)/g;
 		return valueWithVar.replace(regValueGetters, function (full, variable, x, fallback) {
 			variable = variable.trim();
 			// beta if (details && details.onpropertyneeded) details.onpropertyneeded(variable)  // draw depending CPs first while drawing the element
